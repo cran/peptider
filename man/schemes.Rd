@@ -7,6 +7,11 @@
   several commonly used library schemes: NNN, NNB, NNK,
   trimer, and variations of each in which Cysteine is not
   considered a viable amino acid.
+}
+\details{
+  Built-in library schemes
+
+  The schemes are defined as:
 
   NNN: All four bases (\"N\" = G/A/T/C) possible at all
   three positions in the codon. NNB: All four bases in the
@@ -19,8 +24,8 @@
   This allows the generation of libraries from a predefined
   set of codons and thereby complete exclusion of Stop
   codons and other unwanted codons. NNN (-C): NNN with
-  Cysteine ignored. NNB (+C): NNB with Cysteine ignored.
-  NNK/SC (+C): NNK/S with Cysteine ignored. trimer (+C):
+  Cysteine ignored. NNB (-C): NNB with Cysteine ignored.
+  NNK/SC (-C): NNK/S with Cysteine ignored. trimer (-C):
   Trimer with Cysteine ignored.
 
   The schemes differ in the number of used codons, ranging
@@ -31,9 +36,6 @@
   number of Stop codons that can lead to premature
   termination of the peptide sequence influences the
   performance of the library.
-}
-\details{
-  Built-in library schemes
 }
 \keyword{datasets}
 
