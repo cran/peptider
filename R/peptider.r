@@ -65,6 +65,52 @@ libscheme <- function(schm, k = 1) {
     else stop("scheme must be either a character or a data frame")
 }
 
+libscheme_new <- function(schm, k = 1) {
+    if (is.character(schm)) return(libBuild_new(scheme(schm), k = k))
+    else if (is.data.frame(schm)) return(libBuild_new(k, schm))
+    else stop("scheme must be either a character or a data frame")
+}
+
+#' Diversity according to peptides paper (Sieber)
+#' 
+#' @param k length of peptide sequences
+#' @param libscheme Name (character vector) or definition (data frame) of scheme
+#' @param N size of the library 
+#' @param lib library scheme
+#' 
+#' @return Expected Diversity of the library
+#' 
+#' @export
+#' 
+#' @examples
+#' diversity(2, "NNN", 10^3)
+#' diversity(2, "NNK", 10^3)
+diversity <- function (k, libscheme, N, lib = NULL) 
+{
+    libschm <- as.character(substitute(libscheme))
+    if (inherits(try(scheme(libschm), silent = TRUE), "try-error")) 
+        libschm <- libscheme
+    if (is.null(lib)) 
+        lib <- libscheme(libschm, k)
+    libdata <- lib$data
+    initialloss <- (1 - (lib$info$valid/lib$info$nucleotides)^k)
+    libdata$expected <- libdata$probs * N * (1 - initialloss)
+    return(sum(with(libdata, di * (1 - exp(-expected/di)))))
+}
+
+diversity_new <- function (k, libscheme, N, lib = NULL) 
+{
+    libschm <- as.character(substitute(libscheme))
+    if (inherits(try(scheme(libschm), silent = TRUE), "try-error")) 
+        libschm <- libscheme
+    if (is.null(lib)) 
+        lib <- libscheme_new(libschm, k)
+    libdata <- lib$data
+    initialloss <- (1 - (lib$info$valid/lib$info$nucleotides)^k)
+    libdata$expected <- libdata$probs * N * (1 - initialloss)
+    return(sum(with(libdata, di * choices * (1 - exp(-expected/di)))))
+}
+
 #' Diversity index according to Makowski
 #'
 #' The Diversity of a peptide library of length k according to Makowski and colleagues
@@ -91,6 +137,19 @@ makowski <- function(k, libscheme) {
     numAA <- sum(info$s[-nrow(info)]) 
     
     with(dframe, 1/(numAA^k*sum(probs^2/di)))
+}
+
+makowski_new <- function(k, libscheme) {
+    libschm <- as.character(substitute(libscheme)) ## Compatibility with old interface
+    if (inherits(try(scheme(libschm), silent = TRUE), 'try-error')) libschm <- libscheme
+    
+    scheme_def <- libscheme_new(libschm, k)
+    
+    dframe <- scheme_def$data
+    info <- scheme_def$info$scheme
+    numAA <- sum(info$s[-nrow(info)]) 
+    
+    with(dframe, 1/(numAA^k*sum(((probs^2)*choices)/di)))
 }
 
 #' Coverage as expected number of peptides given all possible peptides
@@ -122,6 +181,22 @@ coverage <- function(k, libscheme, N, lib=NULL) {
     with(libdata, min(sum(z)/s_count^k,1))
 }
 
+coverage_new <- function(k, libscheme, N, lib=NULL) {
+    libschm <- as.character(substitute(libscheme)) ## Compatibility with old interface
+    if (inherits(try(scheme(libschm), silent = TRUE), 'try-error')) libschm <- libscheme
+    
+    if (is.null(lib)) lib <- libscheme_new(libschm, k)
+    libdata <- lib$data
+    
+    initialloss <- (1-(lib$info$valid/lib$info$nucleotides)^k)
+    expected <- libdata$probs*N*(1-initialloss)
+    z <- with(libdata, di*(1-exp(-expected/di)))
+    
+    s_count <- sum(subset(lib$info$scheme, class != "Z")$s)
+    
+    min(sum(z*libdata$choices)/s_count^k,1)
+}
+
 #' Relative efficiency of a library
 #'
 #' Relative efficiency of a peptide library, defined as the ratio of expected diversity of a peptide library relative to its overall number of oligonucleotides
@@ -151,7 +226,25 @@ efficiency <- function(k, libscheme, N, lib=NULL) {
     with(libdata, min(s_count^k,sum(z))/N)
 }
 
+efficiency_new <- function(k, libscheme, N, lib=NULL) {
+    libschm <- as.character(substitute(libscheme)) ## Compatibility with old interface
+    if (inherits(try(scheme(libschm), silent = TRUE), 'try-error')) libschm <- libscheme
+    
+    if (is.null(lib)) lib <- libscheme_new(libschm, k)
+    libdata <- lib$data
+    
+    initialloss <- (1-(lib$info$valid/lib$info$nucleotides)^k)
+    libdata$expected <- libdata$probs*N*(1-initialloss)
+    libdata$z <- with(libdata, di*(1-exp(-expected/di)))
+    
+    s_count <- sum(subset(lib$info$scheme, class != "Z")$s)
+    
+    with(libdata, min(s_count^k,sum(z*choices))/N)
+}
+
 #' Build peptide library of k-length sequences according to specified scheme
+#' 
+#' @import discreteRV
 #' 
 #' @param k length of peptide sequences
 #' @param libscheme library scheme specifying classes of amino acids according to number of encodings
@@ -166,8 +259,8 @@ efficiency <- function(k, libscheme, N, lib=NULL) {
 libBuild <- function(k, libscheme) {
     libscheme$class <- as.character(libscheme$class)
     libscheme$s <- nchar(as.character(libscheme$aacid))
-    seq <- with(libscheme[-nrow(libscheme),], make.RV(class, s*c))
-    d <- with(libscheme[-nrow(libscheme),], make.RV(class, s))
+    seq <- with(libscheme[-nrow(libscheme),], make.RV(class, s*c / sum(s*c), fractions = FALSE))
+    d <- with(libscheme[-nrow(libscheme),], make.RV(class, s / sum(s), fractions = FALSE))
     
     d7 <- multN(d,k)
     seq7 <- multN(seq,k)
@@ -180,6 +273,55 @@ libBuild <- function(k, libscheme) {
                    scheme=libscheme))
 }
 
+getChoices <- function(str) {
+    test <- as.numeric(unlist(strsplit(str, split = ",")))
+    
+    left <- sum(test)
+    total <- 1
+    for (i in 1:length(test)) {
+        val <- choose(left, test[i])
+        left <- left - test[i]
+        total <- total * val
+    }
+    
+    return(total)
+}
+
+mult_reduced <- function(X, n = 2) {
+    num_outcomes <- length(X)
+    
+    str.func <- paste("expand.grid(", paste(rep(paste("0:", n, sep = ""), times = num_outcomes), collapse = ", "), ")")
+    
+    grid.df <- eval(parse(text = str.func))
+    grid.sub <- subset(grid.df, apply(grid.df, 1, sum) == n)
+    
+    grid.str <- apply(grid.sub, 1, paste, collapse = ",")
+    grid.list <- split(grid.sub, 1:nrow(grid.sub))
+    grid.prob <- lapply(grid.list, function(x) {
+        prod(probs(X)^x)
+    })
+    
+    grid.choices <- lapply(grid.str, getChoices)
+    data.frame(Encoding = as.character(grid.str), Prob = as.numeric(grid.prob), Choices = as.numeric(grid.choices))
+}
+
+libBuild_new <- function(k, libscheme) {
+    libscheme$class <- as.character(libscheme$class)
+    libscheme$s <- nchar(as.character(libscheme$aacid))
+    seq <- with(libscheme[-nrow(libscheme),], make.RV(class, s*c / sum(s*c), fractions = FALSE))
+    d <- with(libscheme[-nrow(libscheme),], make.RV(class, s / sum(s), fractions = FALSE))
+    
+    d7 <- mult_reduced(d, k)
+    seq7 <- mult_reduced(seq, k)
+    
+    di <- with(libscheme, round(d7$Prob*sum(s[-length(unique(class))])^k,0))
+    pi <- seq7$Prob
+    mult <- with(libscheme, s*c)
+    list(data=data.frame(class = as.vector(d7[,1]), di = di, choices = seq7$Choices, probs = pi),
+         info=list(nucleotides=sum(with(libscheme, mult)), 
+                   valid=with(libscheme, sum(mult[-length(mult)])),
+                   scheme=libscheme))
+}
 
 #' Detection probability in a single library of size N
 #'
@@ -195,6 +337,13 @@ libBuild <- function(k, libscheme) {
 #' lib <- libscheme("NNK", 7)
 #' qplot(detect(lib, size=10^8), weight=di, geom="histogram", data=lib$data)
 detect <- function(lib = libscheme("NNK", 7), size = 10^8) {
+    with(lib$data, 1 - exp(-size*probs/di))
+}
+
+# require(ggplot2)
+# lib <- libscheme_new("NNK", 7)
+# qplot(detect_new(lib, size=10^8), weight=di*choices, geom="histogram", data=lib$data)
+detect_new <- function(lib = libscheme_new("NNK", 7), size = 10^8) {
     with(lib$data, 1 - exp(-size*probs/di))
 }
 
@@ -225,6 +374,7 @@ getNeighborOne <- function(x, blosum=1) {
 #' 
 #' first degree neighbors - a neighbor of a peptide is defined as a peptide sequence that differs in at most one amino acid from a given sequence. 
 #' Additionally, we can restrict neighbors to regard only those sequences that have a certain minimal BLOSUM loading. 
+#' @import plyr
 #' @param x (vector) of character strings of  peptide sequences.
 #' @param blosum minimal BLOSUM loading, defaults to 1 for positive loadings only
 #' @return list of neighbor sequences
@@ -274,6 +424,7 @@ getNofNeighborsOne <- function(x, blosum = 1, method="peptide", libscheme=NULL) 
 #' @param method character string, one of "peptide" or "dna". This specifies the level at which the neighbors are calculated.
 #' @param libscheme library scheme under which neighbors are being calculated. this is only of importance, if method="dna"
 #' @return vector of numbers of neighbors 
+#' @import plyr
 #' @export
 #' @examples
 #' getNofNeighbors("APE")
@@ -298,6 +449,7 @@ getNofNeighbors <- function(x, blosum = 1, method="peptide", libscheme=NULL) {
 #' @param flag internal use only: Set to true if calling this from another function
 #' @return vector of numbers of codons 
 #' @export
+#' @import plyr
 #' @examples
 #' codons("APE", libscheme="NNK")
 #' codons("HENNING", libscheme="NNK")

@@ -46,12 +46,13 @@ getChoices <- function(str) {
 
 #' For a given scheme, generate a dataset with the peptide probabilities
 #' @param scheme_def definition of the custom scheme
+#' @param k peptide lengths to include
+#' @param n exponents of the library size to include
+#' @import plyr
 #' @return A data frame of peptide probabilities
-generateCustomProbs <- function(scheme_def) {
-    ## The Constants
-    k <- 6:10
-    N <- c(10^6, 10^7, 10^8, 10^9, 10^10, 10^11, 10^12)
-    n <- as.vector(sapply(10^seq(6, 12, by = 1), `*`, seq(1.0, 9.9, by = 0.1)))
+generateCustomProbs <- function(scheme_def, k = 6:10, n = 6:14) {
+    ## Library sizes
+    n <- as.vector(sapply(10^n, `*`, seq(1.0, 9.9, by = 0.1)))
     
     ## Generate scheme
     lib <- libscheme(scheme_def)
@@ -85,21 +86,40 @@ generateCustomProbs <- function(scheme_def) {
     return(lib.probs)
 }
 
+generateCustomProbs_new <- function(scheme_def, k = 6:18) {
+    lib <- libscheme_new(scheme_def)
+    
+    cat("Getting possible peptide encodings...\n")
+    lib.probs.tmp <- ldply(k, function(y) {
+        ## Generate scheme
+        df <- libscheme_new(scheme_def, y)$data
+        df$k <- y
+        names(df)[1] <- "Counts" #compat
+        
+        df
+    })
+    
+    cat("Getting a sample peptide encoding...\n")
+    lib.probs.tmp$samp.encoding <- apply(lib.probs.tmp, 1, function(z) { paste(rep(lib$info$scheme$class, as.numeric(c(strsplit(as.character(z), split = ",")[[1]], 0))), collapse = "") })
+
+    return(lib.probs.tmp)
+}
+
 #' For a given scheme, generate a dataset with the library information
 #' @param scheme_def definition of the custom scheme
+#' @param k peptide lengths to include
+#' @param n exponents of the library size to include
+#' @import plyr
 #' @return A data frame of library information
-generateCustomLib <- function(scheme_def) {
-    ## The Constants
-    k <- 6:10
-    N <- c(10^6, 10^7, 10^8, 10^9, 10^10, 10^11, 10^12)
-    n <- as.vector(sapply(10^seq(6, 12, by = 1), `*`, seq(1.0, 9.9, by = 0.1)))
+generateCustomLib <- function(scheme_def, k = 6:10, n = 6:14) {
+    ## Library sizes
+    n <- as.vector(sapply(10^n, `*`, seq(1.0, 9.9, by = 0.1)))
     
     cat("Generating library properties...\n")
     lib.stats <- ldply(k, function(k1) {
         cat("Processing for k =", k1, "\n")
         
         lib <- libscheme(scheme_def, k = k1)
-        n <- as.vector(sapply(10^seq(6, 12, by = 1), `*`, seq(1.0, 9.9, by = 0.1)))
         
         lib.stats <- ldply(n, .progress = "text", function(n1) {  
             # cat("Processing for n =", n1, "\n")
@@ -118,11 +138,40 @@ generateCustomLib <- function(scheme_def) {
     return(lib.stats)
 }
 
+generateCustomLib_new <- function(scheme_def, k = 6:18, n = 6:25) {
+    ## Library sizes
+    n <- as.vector(sapply(10^n, `*`, seq(1.0, 9.9, by = 0.1)))
+    
+    cat("Generating library properties...\n")
+    lib.stats <- ldply(k, function(k1) {
+        cat("Processing for k =", k1, "\n")
+        
+        lib <- libscheme_new(scheme_def, k = k1)
+        
+        lib.stats <- ldply(n, .progress = "text", function(n1) {  
+            # cat("Processing for n =", n1, "\n")
+            
+            cov = coverage_new(k=k1, libscheme=scheme_def, N=n1, lib=lib)
+            eff = efficiency_new(k=k1, libscheme=scheme_def, N=n1, lib=lib)
+            c(k=k1, n=n1, cov=cov, eff=eff)
+        })
+        
+        cat("Generating library diversity...\n")
+        lib.stats$div = makowski_new(k=k1, libscheme=scheme_def)
+        
+        lib.stats
+    })
+    
+    return(lib.stats)
+}
+
 #' Generate peptide and library information for a given scheme
 #' 
 #' This function will generate library properties for a custom scheme.  It is primarily intended to be used on http://www.pelica.org.
 #' @param scheme_name The name of the resulting encoding scheme
 #' @param scheme_def A data frame containing encoding information for the scheme
+#' @param k peptide lengths to include
+#' @param n exponents of the library size to include
 #' @return TRUE upon completion of the script and output of the CSV files
 #' @export
 #' @examples
@@ -130,9 +179,20 @@ generateCustomLib <- function(scheme_def) {
 #' generateCustom()
 #' generateCustom(scheme_name = "NNN", scheme_def = scheme("NNN"))
 #' }
-generateCustom <- function(scheme_name = "Custom", scheme_def = read.csv(file.choose())) {
-    custom.probs <- generateCustomProbs(scheme_def)
-    custom.lib <- generateCustomLib(scheme_def)
+generateCustom <- function(scheme_name = "Custom", scheme_def = read.csv(file.choose()), k = 6:10, n = 6:14) {
+    custom.probs <- generateCustomProbs(scheme_def, k, n)
+    custom.lib <- generateCustomLib(scheme_def, k, n)
+    
+    write.csv(custom.probs, paste("prob-", scheme_name, ".csv", sep = ""), row.names = FALSE)
+    write.csv(custom.lib, paste("lib-", scheme_name, ".csv", sep = ""), row.names = FALSE)
+    write.csv(file, paste("scheme-", scheme_name, ".csv", sep = ""), row.names = FALSE)
+    
+    TRUE
+}
+
+generateCustom_new <- function(scheme_name = "Custom", scheme_def = read.csv(file.choose()), k = 6:18, n = 6:25) {
+    custom.probs <- generateCustomProbs_new(scheme_def, k)
+    custom.lib <- generateCustomLib_new(scheme_def, k, n)
     
     write.csv(custom.probs, paste("prob-", scheme_name, ".csv", sep = ""), row.names = FALSE)
     write.csv(custom.lib, paste("lib-", scheme_name, ".csv", sep = ""), row.names = FALSE)

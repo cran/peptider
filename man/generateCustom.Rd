@@ -2,8 +2,8 @@
 \alias{generateCustom}
 \title{Generate peptide and library information for a given scheme}
 \usage{
-  generateCustom(scheme_name = "Custom",
-    scheme_def = read.csv(file.choose()))
+generateCustom(scheme_name = "Custom", scheme_def = read.csv(file.choose()),
+  k = 6:10, n = 6:14)
 }
 \arguments{
   \item{scheme_name}{The name of the resulting encoding
@@ -11,15 +11,19 @@
 
   \item{scheme_def}{A data frame containing encoding
   information for the scheme}
+
+  \item{k}{peptide lengths to include}
+
+  \item{n}{exponents of the library size to include}
 }
 \value{
-  TRUE upon completion of the script and output of the CSV
-  files
+TRUE upon completion of the script and output of the CSV
+files
 }
 \description{
-  This function will generate library properties for a
-  custom scheme.  It is primarily intended to be used on
-  http://www.pelica.org.
+This function will generate library properties for a custom
+scheme.  It is primarily intended to be used on
+http://www.pelica.org.
 }
 \examples{
 \dontrun{
