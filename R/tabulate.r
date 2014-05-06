@@ -86,21 +86,16 @@ generateCustomProbs <- function(scheme_def, k = 6:10, n = 6:14) {
     return(lib.probs)
 }
 
-generateCustomProbs_new <- function(scheme_def, k = 6:18) {
-    lib <- libscheme_new(scheme_def)
-    
+generateCustomProbs_new <- function(scheme_def, k = 6:10) {
     cat("Getting possible peptide encodings...\n")
     lib.probs.tmp <- ldply(k, function(y) {
         ## Generate scheme
         df <- libscheme_new(scheme_def, y)$data
         df$k <- y
-        names(df)[1] <- "Counts" #compat
         
         df
     })
-    
-    cat("Getting a sample peptide encoding...\n")
-    lib.probs.tmp$samp.encoding <- apply(lib.probs.tmp, 1, function(z) { paste(rep(lib$info$scheme$class, as.numeric(c(strsplit(as.character(z), split = ",")[[1]], 0))), collapse = "") })
+    lib.probs.tmp$scheme <- "Custom"
 
     return(lib.probs.tmp)
 }
@@ -138,7 +133,7 @@ generateCustomLib <- function(scheme_def, k = 6:10, n = 6:14) {
     return(lib.stats)
 }
 
-generateCustomLib_new <- function(scheme_def, k = 6:18, n = 6:25) {
+generateCustomLib_new <- function(scheme_def, k = 6:10, n = 6:14) {
     ## Library sizes
     n <- as.vector(sapply(10^n, `*`, seq(1.0, 9.9, by = 0.1)))
     
@@ -153,16 +148,48 @@ generateCustomLib_new <- function(scheme_def, k = 6:18, n = 6:25) {
             
             cov = coverage_new(k=k1, libscheme=scheme_def, N=n1, lib=lib)
             eff = efficiency_new(k=k1, libscheme=scheme_def, N=n1, lib=lib)
-            c(k=k1, n=n1, cov=cov, eff=eff)
-        })
-        
+            c(k=k1, N=n1, coverage=cov, efficiency=eff)
+        })        
         cat("Generating library diversity...\n")
-        lib.stats$div = makowski_new(k=k1, libscheme=scheme_def)
+        lib.stats$diversity = makowski_new(k=k1, libscheme=scheme_def)
+        lib.stats$scheme <- "Custom"
         
         lib.stats
     })
     
     return(lib.stats)
+}
+
+generateCustomNei_new <- function(scheme_def, k = 6:10, n = 6:14) {
+    ## Library sizes
+    n <- as.vector(sapply(10^n, `*`, seq(1.0, 9.9, by = 0.1)))
+    
+    nei.dat <- ldply(k, function(x) {
+        
+        worst.aa <- strsplit(as.character(scheme_def$aacid)[which.min(scheme_def$c[scheme_def$c > 0])], "")[[1]]
+        best.aa <- strsplit(as.character(scheme_def$aacid)[which.max(scheme_def$c)], "")[[1]]
+        
+        peps.worst <- sapply(worst.aa, function(aa){paste(rep(aa, x), collapse = "")})
+        peps.best <- sapply(best.aa, function(aa){paste(rep(aa, x), collapse = "")})
+        
+        worst.tmp <- sapply(peps.worst, function(pep){
+            ppeptide(getNeighbors(pep), scheme_def, n)
+        })
+        worst <- apply(worst.tmp, 1, min)
+        worst.which <- which.min(worst.tmp[1,])
+        worst2 <- ppeptide(unique(unlist(getNeighbors(getNeighbors(peps.worst[worst.which])))), scheme_def, n)
+        
+        best.tmp <- sapply(peps.best, function(pep){
+            ppeptide(getNeighbors(pep), scheme_def, n)
+        })
+        best <- apply(best.tmp, 1, max)
+        best.which <- which.max(best.tmp[1,])
+        best2 <- ppeptide(unique(unlist(getNeighbors(getNeighbors(peps.best[best.which])))), scheme_def, n)
+        
+        data.frame(scheme = "Custom", k = x, N = rep(n, times = 2), degree = rep(1:2, each = length(n)), worst = c(worst, worst2), best = c(best, best2))
+    })
+    
+    nei.dat
 }
 
 #' Generate peptide and library information for a given scheme
@@ -190,13 +217,15 @@ generateCustom <- function(scheme_name = "Custom", scheme_def = read.csv(file.ch
     TRUE
 }
 
-generateCustom_new <- function(scheme_name = "Custom", scheme_def = read.csv(file.choose()), k = 6:18, n = 6:25) {
+generateCustom_new <- function(scheme_name = "custom", scheme_def = read.csv(file.choose()), k = 6:10, n = 6:14) {
     custom.probs <- generateCustomProbs_new(scheme_def, k)
     custom.lib <- generateCustomLib_new(scheme_def, k, n)
+    custom.nei <- generateCustomNei_new(scheme_def, k, n)
     
-    write.csv(custom.probs, paste("prob-", scheme_name, ".csv", sep = ""), row.names = FALSE)
-    write.csv(custom.lib, paste("lib-", scheme_name, ".csv", sep = ""), row.names = FALSE)
-    write.csv(file, paste("scheme-", scheme_name, ".csv", sep = ""), row.names = FALSE)
+    write.csv(custom.probs, paste("peptide_", scheme_name, ".csv", sep = ""), row.names = FALSE)
+    write.csv(custom.lib, paste("library_", scheme_name, ".csv", sep = ""), row.names = FALSE)
+    write.csv(custom.nei, paste("neighborhood_", scheme_name, ".csv", sep = ""), row.names = FALSE)
+    write.csv(scheme_def, paste("scheme_", scheme_name, ".csv", sep = ""), row.names = FALSE)
     
     TRUE
 }
