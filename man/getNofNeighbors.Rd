@@ -10,7 +10,7 @@ getNofNeighbors(x, blosum = 1, method = "peptide", libscheme = NULL)
 
 \item{blosum}{minimal BLOSUM loading, defaults to 1 for positive loadings only}
 
-\item{method}{character string, one of "peptide" or "dna". This specifies the level at which the neighbors are calculated.}
+\item{method}{character string, one of "peptide" or "codon". This specifies the level at which the neighbors are calculated.}
 
 \item{libscheme}{library scheme under which neighbors are being calculated. this is only of importance, if method="dna"}
 }
@@ -26,6 +26,6 @@ Use this function for only a few peptide sequences. Any larger number of peptide
 getNofNeighbors("APE")
 getNofNeighbors(c("NEAREST", "EARNEST"))
 getNofNeighbors("N")
-getNofNeighbors("N", method="dna", libscheme="NNK")
+getNofNeighbors("N", method="codon", libscheme="NNK")
 }
 

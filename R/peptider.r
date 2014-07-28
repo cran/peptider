@@ -65,14 +65,8 @@ scheme <- function(name, file = NULL) {
 #' custom <- data.frame(class = c("A", "Z"), aacid = c("SLRAGPTVIDEFHKNQYMW", "*"), c = c(1, 0))
 #' libscheme(custom)
 libscheme <- function(schm, k = 1) {
-    if (is.character(schm)) return(libBuild(k, scheme(schm)))
+    if (is.character(schm)) return(libBuild(scheme(schm), k = k))
     else if (is.data.frame(schm)) return(libBuild(k, schm))
-    else stop("scheme must be either a character or a data frame")
-}
-
-libscheme_new <- function(schm, k = 1) {
-    if (is.character(schm)) return(libBuild_new(scheme(schm), k = k))
-    else if (is.data.frame(schm)) return(libBuild_new(k, schm))
     else stop("scheme must be either a character or a data frame")
 }
 
@@ -82,6 +76,7 @@ libscheme_new <- function(schm, k = 1) {
 #' @param libscheme Name (character vector) or definition (data frame) of scheme
 #' @param N size of the library 
 #' @param lib library scheme
+#' @param variance return the variance instead of the expected value
 #' 
 #' @return Expected Diversity of the library
 #' 
@@ -90,7 +85,7 @@ libscheme_new <- function(schm, k = 1) {
 #' @examples
 #' diversity(2, "NNN", 10^3)
 #' diversity(2, "NNK", 10^3)
-diversity <- function (k, libscheme, N, lib = NULL) 
+diversity <- function (k, libscheme, N, lib = NULL, variance = FALSE) 
 {
     libschm <- as.character(substitute(libscheme))
     if (inherits(try(scheme(libschm), silent = TRUE), "try-error")) 
@@ -100,20 +95,16 @@ diversity <- function (k, libscheme, N, lib = NULL)
     libdata <- lib$data
     initialloss <- (1 - (lib$info$valid/lib$info$nucleotides)^k)
     libdata$expected <- libdata$probs * N * (1 - initialloss)
-    return(sum(with(libdata, di * (1 - exp(-expected/di)))))
-}
-
-diversity_new <- function (k, libscheme, N, lib = NULL) 
-{
-    libschm <- as.character(substitute(libscheme))
-    if (inherits(try(scheme(libschm), silent = TRUE), "try-error")) 
-        libschm <- libscheme
-    if (is.null(lib)) 
-        lib <- libscheme_new(libschm, k)
-    libdata <- lib$data
-    initialloss <- (1 - (lib$info$valid/lib$info$nucleotides)^k)
-    libdata$expected <- libdata$probs * N * (1 - initialloss)
-    return(sum(with(libdata, di * choices * (1 - exp(-expected/di)))))
+    
+    curdigits <- options()$digits
+    options(digits = 22)
+    
+    val <- sum(with(libdata, di * choices * (1 - exp(-expected/di))))
+    if (variance) val <- with(libdata, sum(choices * (2*di * exp(-expected / di) * (1- exp(-expected/di)))))
+    
+    options(digits = curdigits)
+    
+    return(val)
 }
 
 #' Diversity index according to Makowski
@@ -141,19 +132,6 @@ makowski <- function(k, libscheme) {
     info <- scheme_def$info$scheme
     numAA <- sum(info$s[-nrow(info)]) 
     
-    with(dframe, 1/(numAA^k*sum(probs^2/di)))
-}
-
-makowski_new <- function(k, libscheme) {
-    libschm <- as.character(substitute(libscheme)) ## Compatibility with old interface
-    if (inherits(try(scheme(libschm), silent = TRUE), 'try-error')) libschm <- libscheme
-    
-    scheme_def <- libscheme_new(libschm, k)
-    
-    dframe <- scheme_def$data
-    info <- scheme_def$info$scheme
-    numAA <- sum(info$s[-nrow(info)]) 
-    
     with(dframe, 1/(numAA^k*sum(((probs^2)*choices)/di)))
 }
 
@@ -164,42 +142,25 @@ makowski_new <- function(k, libscheme) {
 #' @param libscheme Name (character vector) or definition (data frame) of scheme
 #' @param N size of the library 
 #' @param lib library scheme
+#' @param variance return the variance instead of the expected value
 #' @return coverage index between 0 and 1
 #' @export
 #' @examples
 #' coverage(2, "NNN", 10^3)
 #' coverage(2, "NNK", 10^3)
 #' coverage(2, "Trimer", 10^3) ## Trimer coverage is not 1 because of random sampling.
-coverage <- function(k, libscheme, N, lib=NULL) {
+coverage <- function(k, libscheme, N, lib=NULL, variance = FALSE) {
     libschm <- as.character(substitute(libscheme)) ## Compatibility with old interface
     if (inherits(try(scheme(libschm), silent = TRUE), 'try-error')) libschm <- libscheme
     
     if (is.null(lib)) lib <- libscheme(libschm, k)
-    libdata <- lib$data
-    
-    initialloss <- (1-(lib$info$valid/lib$info$nucleotides)^k)
-    libdata$expected <- libdata$probs*N*(1-initialloss)
-    libdata$z <- with(libdata, di*(1-exp(-expected/di)))
     
     s_count <- sum(subset(lib$info$scheme, class != "Z")$s)
     
-    with(libdata, min(sum(z)/s_count^k,1))
-}
-
-coverage_new <- function(k, libscheme, N, lib=NULL) {
-    libschm <- as.character(substitute(libscheme)) ## Compatibility with old interface
-    if (inherits(try(scheme(libschm), silent = TRUE), 'try-error')) libschm <- libscheme
+    val <- min(diversity(k, libscheme, N, lib, variance) / s_count^k, 1)
+    if (variance) val <- val / s_count^k
     
-    if (is.null(lib)) lib <- libscheme_new(libschm, k)
-    libdata <- lib$data
-    
-    initialloss <- (1-(lib$info$valid/lib$info$nucleotides)^k)
-    expected <- libdata$probs*N*(1-initialloss)
-    z <- with(libdata, di*(1-exp(-expected/di)))
-    
-    s_count <- sum(subset(lib$info$scheme, class != "Z")$s)
-    
-    min(sum(z*libdata$choices)/s_count^k,1)
+    return(val)
 }
 
 #' Relative efficiency of a library
@@ -209,42 +170,26 @@ coverage_new <- function(k, libscheme, N, lib=NULL) {
 #' @param libscheme Name (character vector) or definition (data frame) of scheme
 #' @param N size of the library 
 #' @param lib library, if null, libscheme will be used to create it
+#' @param variance return the variance instead of the expected value
 #' @return relative efficiency index between 0 and 1
 #' @export
 #' @examples
 #' efficiency(3, "NNN", 10^2)
 #' efficiency(3, "NNK", 10^2)
 #' efficiency(3, "Trimer", 10^2) ## Trimer efficiency is not 1 because of random sampling.
-efficiency <- function(k, libscheme, N, lib=NULL) {
+efficiency <- function(k, libscheme, N, lib=NULL, variance = FALSE) {
     libschm <- as.character(substitute(libscheme)) ## Compatibility with old interface
     if (inherits(try(scheme(libschm), silent = TRUE), 'try-error')) libschm <- libscheme
     
     if (is.null(lib)) lib <- libscheme(libschm, k)
     libdata <- lib$data
     
-    initialloss <- (1-(lib$info$valid/lib$info$nucleotides)^k)
-    libdata$expected <- libdata$probs*N*(1-initialloss)
-    libdata$z <- with(libdata, di*(1-exp(-expected/di)))
-    
     s_count <- sum(subset(lib$info$scheme, class != "Z")$s)
     
-    with(libdata, min(s_count^k,sum(z))/N)
-}
-
-efficiency_new <- function(k, libscheme, N, lib=NULL) {
-    libschm <- as.character(substitute(libscheme)) ## Compatibility with old interface
-    if (inherits(try(scheme(libschm), silent = TRUE), 'try-error')) libschm <- libscheme
+    val <- min(diversity(k, libscheme, N, lib, variance), s_count^k) / N
+    if (variance) val <- val / N
     
-    if (is.null(lib)) lib <- libscheme_new(libschm, k)
-    libdata <- lib$data
-    
-    initialloss <- (1-(lib$info$valid/lib$info$nucleotides)^k)
-    libdata$expected <- libdata$probs*N*(1-initialloss)
-    libdata$z <- with(libdata, di*(1-exp(-expected/di)))
-    
-    s_count <- sum(subset(lib$info$scheme, class != "Z")$s)
-    
-    with(libdata, min(s_count^k,sum(z*choices))/N)
+    return(val)
 }
 
 #' Build peptide library of k-length sequences according to specified scheme
@@ -253,7 +198,9 @@ efficiency_new <- function(k, libscheme, N, lib=NULL) {
 #' 
 #' @param k length of peptide sequences
 #' @param libscheme library scheme specifying classes of amino acids according to number of encodings
-#' last class is reserved for stop tags and other amino acids we are not interested in. 
+#' last class is reserved for stop tags and other amino acids we are not interested in.
+#' @param scale1 Scaling factor for first probs
+#' @param scale2 Scaling factor for second probs
 #' @return library and library scheme used
 #' @examples
 #' user_scheme <- data.frame(class=c("A", "B", "C", "Z"),
@@ -261,18 +208,20 @@ efficiency_new <- function(k, libscheme, N, lib=NULL) {
 #'                           c=c(3,2,1,1))
 #' user_library <- libBuild(3, user_scheme)                        
 #' @export
-libBuild <- function(k, libscheme) {
+libBuild <- function(k, libscheme, scale1 = 1, scale2 = 1) {
     libscheme$class <- as.character(libscheme$class)
     libscheme$s <- nchar(as.character(libscheme$aacid))
-    seq <- with(libscheme[-nrow(libscheme),], make.RV(class, s*c / sum(s*c), fractions = FALSE))
-    d <- with(libscheme[-nrow(libscheme),], make.RV(class, s / sum(s), fractions = FALSE))
     
-    d7 <- multN(d,k)
-    seq7 <- multN(seq,k)
-    di <- with(libscheme, round(probs(d7)*sum(s[-length(unique(class))])^k,0))
-    pi <- probs(seq7)
+    seq <- with(libscheme[-nrow(libscheme),], make.RV(class, scale1 * s*c / sum(s * c), fractions = FALSE, verifyprobs = all(scale1 == 1)))
+    d <- with(libscheme[-nrow(libscheme),], make.RV(class, scale2 * s / sum(s), fractions = FALSE, verifyprobs = all(scale2 == 1)))
+    
+    d7 <- mult_reduced(d, k)
+    seq7 <- mult_reduced(seq, k)
+    
+    di <- with(libscheme, round(d7$Prob*sum(s[-length(unique(class))])^k,0))
+    pi <- seq7$Prob
     mult <- with(libscheme, s*c)
-    list(data=data.frame(class = as.vector(d7), di = di, probs = pi),
+    list(data=data.frame(class = as.vector(d7[,1]), di = di, choices = seq7$Choices, probs = pi),
          info=list(nucleotides=sum(with(libscheme, mult)), 
                    valid=with(libscheme, sum(mult[-length(mult)])),
                    scheme=libscheme))
@@ -292,13 +241,14 @@ getChoices <- function(str) {
     return(total)
 }
 
+#' @importFrom dplyr filter
 mult_reduced <- function(X, n = 2) {
     num_outcomes <- length(X)
     
     str.func <- paste("expand.grid(", paste(rep(paste("0:", n, sep = ""), times = num_outcomes), collapse = ", "), ")")
     
     grid.df <- eval(parse(text = str.func))
-    grid.sub <- subset(grid.df, apply(grid.df, 1, sum) == n)
+    grid.sub <- filter(grid.df, apply(grid.df, 1, sum) == n)
     
     grid.str <- apply(grid.sub, 1, paste, collapse = ",")
     grid.list <- split(grid.sub, 1:nrow(grid.sub))
@@ -308,24 +258,6 @@ mult_reduced <- function(X, n = 2) {
     
     grid.choices <- lapply(grid.str, getChoices)
     data.frame(Encoding = as.character(grid.str), Prob = as.numeric(grid.prob), Choices = as.numeric(grid.choices))
-}
-
-libBuild_new <- function(k, libscheme) {
-    libscheme$class <- as.character(libscheme$class)
-    libscheme$s <- nchar(as.character(libscheme$aacid))
-    seq <- with(libscheme[-nrow(libscheme),], make.RV(class, s*c / sum(s*c), fractions = FALSE))
-    d <- with(libscheme[-nrow(libscheme),], make.RV(class, s / sum(s), fractions = FALSE))
-    
-    d7 <- mult_reduced(d, k)
-    seq7 <- mult_reduced(seq, k)
-    
-    di <- with(libscheme, round(d7$Prob*sum(s[-length(unique(class))])^k,0))
-    pi <- seq7$Prob
-    mult <- with(libscheme, s*c)
-    list(data=data.frame(class = as.vector(d7[,1]), di = di, choices = seq7$Choices, probs = pi),
-         info=list(nucleotides=sum(with(libscheme, mult)), 
-                   valid=with(libscheme, sum(mult[-length(mult)])),
-                   scheme=libscheme))
 }
 
 #' Detection probability in a single library of size N
@@ -342,13 +274,6 @@ libBuild_new <- function(k, libscheme) {
 #' lib <- libscheme("NNK", 7)
 #' qplot(detect(lib, size=10^8), weight=di, geom="histogram", data=lib$data)
 detect <- function(lib = libscheme("NNK", 7), size = 10^8) {
-    with(lib$data, 1 - exp(-size*probs/di))
-}
-
-# require(ggplot2)
-# lib <- libscheme_new("NNK", 7)
-# qplot(detect_new(lib, size=10^8), weight=di*choices, geom="histogram", data=lib$data)
-detect_new <- function(lib = libscheme_new("NNK", 7), size = 10^8) {
     with(lib$data, 1 - exp(-size*probs/di))
 }
 
@@ -391,6 +316,7 @@ getNeighborOne <- function(x, blosum=1) {
 #' ## degree 2 neighbors:
 #' unique(unlist(getNeighbors(getNeighbors("APE"))))
 getNeighbors <- function(x, blosum=1) {
+    x <- as.character(x)
     if (length(x) == 1) return(getNeighborOne(x, blosum))
     llply(x, getNeighborOne)
 }
@@ -400,22 +326,34 @@ getNofNeighborsOne <- function(x, blosum = 1, method="peptide", libscheme=NULL) 
     BLOSUM80 <- AA1 <- Blosum <- AA2 <- NULL
     
     data(BLOSUM80, envir=environment())
-    replacements <- llply(strsplit(x,""), function(y) {
-        llply(y, function(z) {
-            as.character(subset(BLOSUM80, (AA1 == z) & (Blosum >= blosum) & (AA2 != z))$AA2)
-        })
-    })[[1]]
-    if (method == "peptide") return(length(unlist(replacements))+1)
     
+    if (method == "peptide") {
+        replacements <- llply(strsplit(x,""), function(y) {
+            llply(y, function(z) {
+                as.character(subset(BLOSUM80, (AA1 == z) & (Blosum >= blosum) & (AA2 != z))$AA2)
+            })
+        })[[1]]
+        return(length(unlist(replacements))+1)
+    }
+    
+#     replacements <- llply(strsplit(x,""), function(y) {
+#         llply(y, function(z) {
+#             as.character(subset(BLOSUM80, (AA1 == z) & (Blosum >= blosum))$AA2)
+#         })
+#     })[[1]]
     stopifnot(!(is.null(libscheme) & nchar(libscheme) == 0))    
-    lib <- peptider::libscheme(libscheme)$info$scheme
+#    lib <- peptider::libscheme(libscheme)$info$scheme
     
-    dnas <- sum(unlist(llply(unlist(replacements), function(w) { 
-        lib[grep(w, lib$aacid),"c"]
-    })))
-    dnas <- dnas + sum(unlist(llply(unlist(strsplit(x, split="")), function(w) { 
-        lib[grep(w, lib$aacid),"c"]
-    })))
+    dnas <- sum(codons(getNeighbors(x, blosum=blosum), libscheme=libscheme))
+    
+#     dnas <- sum(unlist(llply(replacements, function(x) {
+#         sum(unlist(llply(strsplit(x, split=""), function(w) {
+#             lib[grep(w, lib$aacid, fixed = TRUE), "c"]
+#         }))) 
+#     })))
+ #   dnas <- dnas + sum(unlist(llply(unlist(strsplit(x, split="")), function(w) { 
+ #       lib[grep(w, lib$aacid, fixed=TRUE),"c"]
+ #   })))
     return(dnas)
 }
 
@@ -426,7 +364,7 @@ getNofNeighborsOne <- function(x, blosum = 1, method="peptide", libscheme=NULL) 
 #' Use this function for only a few peptide sequences. Any larger number of peptide sequences will take too much main memory.
 #' @param x (vector) of character strings of  peptide sequences.
 #' @param blosum minimal BLOSUM loading, defaults to 1 for positive loadings only
-#' @param method character string, one of "peptide" or "dna". This specifies the level at which the neighbors are calculated.
+#' @param method character string, one of "peptide" or "codon". This specifies the level at which the neighbors are calculated.
 #' @param libscheme library scheme under which neighbors are being calculated. this is only of importance, if method="dna"
 #' @return vector of numbers of neighbors 
 #' @import plyr
@@ -435,18 +373,19 @@ getNofNeighborsOne <- function(x, blosum = 1, method="peptide", libscheme=NULL) 
 #' getNofNeighbors("APE")
 #' getNofNeighbors(c("NEAREST", "EARNEST"))
 #' getNofNeighbors("N")
-#' getNofNeighbors("N", method="dna", libscheme="NNK")
+#' getNofNeighbors("N", method="codon", libscheme="NNK")
 getNofNeighbors <- function(x, blosum = 1, method="peptide", libscheme=NULL) {
     data(BLOSUM80, envir=environment())
     libschm <- as.character(substitute(libscheme)) ## Compatibility with old interface
     if (inherits(try(scheme(libschm), silent = TRUE), 'try-error')) libschm <- libscheme
     
+    x <- as.character(x)
     if (length(x) == 1) return(getNofNeighborsOne(x, blosum, method, libschm))
     
-    return(llply(x, getNofNeighborsOne, blosum, method, libschm))
+    return(laply(x, getNofNeighborsOne, blosum, method, libschm))
 }
 
-#' Compute the number of codons for a vector of peptide sequences
+#' Compute the number of codon representations for a (vector of) peptide sequence(s)
 #' 
 #' use this function for only a few peptide sequences. Any larger number of peptide sequences should be dealt with in the framework of the library scheme and the detect function.
 #' @param x (vector) of character strings of  peptide sequences.
@@ -471,8 +410,9 @@ codonsOne <- function(x, schm) {
     stopifnot(!(is.null(schm) & nchar(schm) == 0))
     lib <- libscheme(schm)$info$scheme
     
+    x <- as.character(x)
     prod(unlist(llply(strsplit(x, split="")[[1]], function(w) { 
-        lib[grep(w, lib$aacid),"c"]
+        lib[grep(w, lib$aacid, fixed=TRUE),"c"]
     })))
 }
 
@@ -504,3 +444,146 @@ ppeptide <- function(x, libscheme, N) {
 #' @docType data
 #' @usage data(BLOSUM80)
 NULL
+
+#' Calculate neighborhood distribution
+#' 
+#' Calculate distribution of neighbors under library scheme lib for peptide sequences of length k.
+#' @param sch library scheme
+#' @param k length of the peptide sequences
+#' @return dataset of peptide sequences: AA are amino acid sequences, 
+#' c0 are codons for self representation, 
+#' cr is the ratio of #neighbors in first degree neighborhood (not counting self representations) and #codons in self representation
+#' N1 is the number of neighbors in codon representation (including self representation) 
+#' @export
+#' @import plyr
+#' @examples
+#' genNeighbors(scheme("NNK"), 2)
+#' genNeighbors(scheme("Trimer"), 2)
+genNeighbors <- function(sch, k) {
+#    sch <- libscheme(lib,1)$info$scheme
+    
+    # don't include class Z
+    schl <- unlist(strsplit(as.character(sch$aacid[-length(sch$aacid)]), ""))
+    schd <- data.frame(AA=schl, C0=codons(schl, libscheme=sch))
+    schd$C1 <- getNofNeighbors(schd$AA, method="codon", libscheme=sch) - schd$C0
+    schd$C1T0 <- with(schd, C1/C0)
+    
+    ctabs <- function(values, labels) {
+        labels <- as.character(labels)
+        
+        tv <- xtabs(~values)
+        ct <- ldply(names(tv), function(x) {
+            data.frame(AA=paste(labels[which(values == x)], collapse=""),
+                       c=x)
+        })
+        ct
+    }
+    
+    user <- with(schd, ctabs(paste(C0, C1, sep=":"), AA))
+    user <- data.frame(user, ldply(strsplit(as.character(user$c), ":"), 
+                                   function(x) as.numeric(unlist(x))))
+    names(user)[3:4] <- c("c0", "c1")
+    user$cr <- with(user, c1/c0)
+    user$c <- user$c0
+    user$s <- nchar(as.character(user$AA))
+    
+    i <- 1
+    C0 <- user$c
+    CR <- user$cr
+    L <- user$AA
+    S <- user$s
+    while (i < k) {
+        C0 <- outer(C0, user$c, FUN = "*")
+        S <- outer(S, user$s, FUN = "*")
+        CR <- outer(CR, user$cr, FUN = "+")
+        L <- outer(L, user$AA, FUN = "paste", sep = ",")
+        
+        sprintf("stage %d done",i)
+        i <- i + 1
+    }
+    x <- data.frame(AA=as.vector(L), 
+                    c0=as.vector(C0), 
+                    cr=as.vector(CR), 
+                    s = as.vector(S))
+    ## number of neighbors
+    x$N1 <- with(x, c0*(cr+1))
+    x
+}
+
+#' Calculate neighborhood distribution
+#' 
+#' Calculate distribution of neighbors under library scheme lib for peptide sequences of length k.
+#' @param sch library scheme
+#' @param k length of the peptide sequences
+#' @return dataset of peptide sequences: L are amino acid sequences, 
+#' c0 are codons for self representation, 
+#' cr is the ratio of #neighbors in first degree neighborhood (not counting self representations) and #codons in self representation
+#' N1 is the number of neighbors in codon representation (including self representation) 
+#' s is the number of peptide sequences described by the label
+#' o is the number of peptide sequences reached by permutations
+#' @export
+#' @import plyr
+#' @examples
+#' genNeighbors_reduced(scheme("NNK"), 2)
+#' genNeighbors_reduced(scheme("Trimer"), 2)
+genNeighbors_reduced <- function(sch, k) {    
+    schl <- unlist(strsplit(as.character(sch$aacid[-length(sch$aacid)]), ""))
+    schd <- data.frame(AA=schl, C0=codons(schl, libscheme=sch))
+    schd$C1 <- getNofNeighbors(schd$AA, method="codon", libscheme=sch) - schd$C0
+    schd$C1T0 <- with(schd, C1/C0)
+    
+    ctabs <- function(values, labels) {
+        labels <- as.character(labels)
+        
+        tv <- xtabs(~values)
+        ct <- ldply(names(tv), function(x) {
+            data.frame(AA=paste(labels[which(values == x)], collapse=""),
+                       c=x)
+        })
+        ct
+    }
+    
+    user <- with(schd, ctabs(paste(C0, C1, sep=":"), AA))
+    user <- data.frame(user, ldply(strsplit(as.character(user$c), ":"), 
+                                   function(x) as.numeric(unlist(x))))
+    names(user)[3:4] <- c("c0", "c1")
+    user$cr <- with(user, c1/c0)
+    user$c <- user$c0
+    user$s <- nchar(as.character(user$AA))
+    user$one <- 1
+    
+    i <- 1
+    dx <- user
+    dx$o <- dx$one
+    dx$L <- user$AA
+    while (i < k) {
+        C0 <- as.vector(outer(dx$c0, user$c, FUN = "*"))
+        S <- as.vector(outer(dx$s, user$s, FUN = "*"))
+        CR <- as.vector(outer(dx$cr, user$cr, FUN = "+"))
+        O <- as.vector(outer(dx$o, user$one, FUN = "*"))
+        #    L <- as.vector(outer(L, user$AA, FUN = function(x,y) {        
+        #        x <- as.character(x)
+        #        y <- as.character(y)
+        #       paste(pmin(x,y), pmax(x,y), sep=",") 
+        #    }))    
+        L <- as.vector(outer(dx$L, user$AA, "paste", sep = ","))
+        lx <- strsplit(as.character(L), split=",")
+        L <- laply(llply(lx, sort), paste, collapse=",")
+        
+        x <- data.frame(L, C0,CR,S,O)
+        dx <- ddply(x, .(L), summarise, 
+                    c0=C0[1],
+                    cr=CR[1],
+                    s=S[1],
+                    o=sum(O))
+        
+        #    save(L,C0,CR,S,O, file=sprintf("%s-%d.RData", lib, i))
+        dx$N1 <- with(dx, c0*(cr+1))
+        dx$k <- i+1
+        #   cat(sprintf("stage %d done\n",i))
+        #   write.table(dx, file="neighbors2.csv", sep=",", col.names=!file.exists("neighbors2.csv"), append=TRUE, row.names=FALSE)
+        
+        i <- i + 1
+    }
+    dx
+}

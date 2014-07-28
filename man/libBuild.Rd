@@ -3,13 +3,17 @@
 \alias{libBuild}
 \title{Build peptide library of k-length sequences according to specified scheme}
 \usage{
-libBuild(k, libscheme)
+libBuild(k, libscheme, scale1 = 1, scale2 = 1)
 }
 \arguments{
 \item{k}{length of peptide sequences}
 
 \item{libscheme}{library scheme specifying classes of amino acids according to number of encodings
 last class is reserved for stop tags and other amino acids we are not interested in.}
+
+\item{scale1}{Scaling factor for first probs}
+
+\item{scale2}{Scaling factor for second probs}
 }
 \value{
 library and library scheme used
